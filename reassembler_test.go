@@ -28,8 +28,6 @@ import (
 	"github.com/elastic/go-libaudit/v2/auparse"
 )
 
-const maxSeq sequenceNum = 1<<32 - 1
-
 type testStream struct {
 	events  [][]*auparse.AuditMessage
 	dropped int
@@ -150,10 +148,33 @@ func testReassembler(t testing.TB, file string, expected *results) {
 	}
 }
 
-func TestSequenceNumSliceSort(t *testing.T) {
-	expected := sequenceNumSlice{maxSeq - 5, maxSeq - 4, maxSeq - 3, maxSeq - 2, maxSeq, 0, 1, 2, 3, 4}
-	seqs := sequenceNumSlice{maxSeq - 5, maxSeq - 4, 0, 1, 2, maxSeq - 3, maxSeq - 2, maxSeq, 3, 4}
-	seqs.Sort()
+func Benchmark_eventList(b *testing.B) {
+	const maxSize = 10
+	eventList := &eventList{
+		seqs:    &heap{},
+		events:  make(map[int]*event, maxSize+1),
+		maxSize: maxSize,
+	}
 
-	assert.Equal(t, expected, seqs)
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.Run("put", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			var msgType auparse.AuditMessageType
+			if i%2 == 0 {
+				msgType = auparse.AUDIT_EOE
+			}
+			eventList.Put(&auparse.AuditMessage{
+				Sequence:   uint32(i),
+				RecordType: msgType,
+			})
+		}
+	})
+
+	b.ResetTimer()
+	b.Run("cleanup", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			eventList.CleanUp()
+		}
+	})
 }
