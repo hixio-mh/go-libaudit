@@ -28,8 +28,6 @@ import (
 	"github.com/elastic/go-libaudit/v2/auparse"
 )
 
-const maxSeq sequenceNum = 1<<32 - 1
-
 type testStream struct {
 	events  [][]*auparse.AuditMessage
 	dropped int
@@ -148,12 +146,4 @@ func testReassembler(t testing.TB, file string, expected *results) {
 		}
 		assert.Equal(t, expectedEvent.count, len(stream.events[i]), "message count")
 	}
-}
-
-func TestSequenceNumSliceSort(t *testing.T) {
-	expected := sequenceNumSlice{maxSeq - 5, maxSeq - 4, maxSeq - 3, maxSeq - 2, maxSeq, 0, 1, 2, 3, 4}
-	seqs := sequenceNumSlice{maxSeq - 5, maxSeq - 4, 0, 1, 2, maxSeq - 3, maxSeq - 2, maxSeq, 3, 4}
-	seqs.Sort()
-
-	assert.Equal(t, expected, seqs)
 }
