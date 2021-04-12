@@ -156,10 +156,9 @@ func Benchmark_eventList(b *testing.B) {
 		maxSize: maxSize,
 	}
 
-	b.ReportAllocs()
-
 	b.ResetTimer()
 	b.Run("put", func(b *testing.B) {
+		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			var msgType auparse.AuditMessageType
 			if i%2 == 0 {
@@ -174,6 +173,7 @@ func Benchmark_eventList(b *testing.B) {
 
 	b.ResetTimer()
 	b.Run("cleanup", func(b *testing.B) {
+		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			eventList.CleanUp()
 		}
