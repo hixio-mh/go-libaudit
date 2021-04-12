@@ -19,6 +19,8 @@ package libaudit
 
 import (
 	"bufio"
+	"container/heap"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -148,34 +150,61 @@ func testReassembler(t testing.TB, file string, expected *results) {
 	}
 }
 
-func Benchmark_eventList(b *testing.B) {
+func Benchmark_eventList_put(b *testing.B) {
 	const maxSize = 10
+	h := &heapInt{}
+	heap.Init(h)
 	eventList := &eventList{
-		seqs:    &heap{},
+		seqs:    h,
+		events:  make(map[int]*event, maxSize+1),
+		maxSize: maxSize,
+	}
+	rand.Seed(time.Now().Unix())
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		var msgType auparse.AuditMessageType
+		if i%2 == 0 {
+			msgType = auparse.AUDIT_EOE
+		}
+		eventList.Put(&auparse.AuditMessage{
+			Sequence:   rand.Uint32(),
+			RecordType: msgType,
+		})
+	}
+}
+
+func generateEvents() *eventList {
+	const maxSize = 10
+	h := &heapInt{}
+	heap.Init(h)
+	eventList := &eventList{
+		seqs:    h,
 		events:  make(map[int]*event, maxSize+1),
 		maxSize: maxSize,
 	}
 
+	for i := 0; i < 1000; i++ {
+		var msgType auparse.AuditMessageType
+		if i%2 == 0 {
+			msgType = auparse.AUDIT_EOE
+		}
+		eventList.Put(&auparse.AuditMessage{
+			Sequence:   rand.Uint32(),
+			RecordType: msgType,
+		})
+	}
+
+	return eventList
+}
+
+func Benchmark_eventList_cleanup(b *testing.B) {
+	eventList := generateEvents()
+
+	b.ResetTimer()
 	b.ReportAllocs()
-
-	b.ResetTimer()
-	b.Run("put", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			var msgType auparse.AuditMessageType
-			if i%2 == 0 {
-				msgType = auparse.AUDIT_EOE
-			}
-			eventList.Put(&auparse.AuditMessage{
-				Sequence:   uint32(i),
-				RecordType: msgType,
-			})
-		}
-	})
-
-	b.ResetTimer()
-	b.Run("cleanup", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			eventList.CleanUp()
-		}
-	})
+	for i := 0; i < b.N; i++ {
+		eventList.CleanUp()
+	}
 }

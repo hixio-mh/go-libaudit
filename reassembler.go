@@ -18,6 +18,8 @@
 package libaudit
 
 import (
+	"container/heap"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,25 +141,25 @@ func (r *Reassembler) callback(events []*event, lost int) {
 	}
 }
 
-type heap []int
+const maxSortRange = 1<<24 - 1
 
-func (h heap) Len() int            { return len(h) }
-func (h heap) Less(i, j int) bool  { return h[i] < h[j] }
-func (h heap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *heap) Push(x interface{}) { *h = append(*h, x.(int)) }
+type heapInt []int
 
-func (h *heap) Pop() interface{} {
+func (h heapInt) Len() int { return len(h) }
+func (h heapInt) Less(i, j int) bool {
+	if math.Abs(float64(h[i]-h[j])) > maxSortRange {
+		return h[i] > h[j]
+	}
+	return h[i] < h[j]
+}
+func (h heapInt) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *heapInt) Push(x interface{}) { *h = append(*h, x.(int)) }
+
+func (h *heapInt) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
 	*h = old[0 : n-1]
-	return x
-}
-
-func (h *heap) Shift() int {
-	old := *h
-	x := old[0]
-	*h = old[1:]
 	return x
 }
 
@@ -188,7 +190,7 @@ func (e *event) IsExpired() bool {
 
 type eventList struct {
 	sync.Mutex
-	seqs    *heap
+	seqs    *heapInt
 	events  map[int]*event
 	lastSeq int
 	maxSize int
@@ -196,8 +198,10 @@ type eventList struct {
 }
 
 func newEventList(maxSize int, timeout time.Duration) *eventList {
+	h := &heapInt{}
+	heap.Init(h)
 	return &eventList{
-		seqs:    &heap{},
+		seqs:    h,
 		events:  make(map[int]*event, maxSize+1),
 		maxSize: maxSize,
 		timeout: timeout,
@@ -207,7 +211,7 @@ func newEventList(maxSize int, timeout time.Duration) *eventList {
 // remove the first event (lowest sequence) in the list.
 func (l *eventList) remove() {
 	if l.seqs.Len() > 0 {
-		seq := l.seqs.Shift()
+		seq := heap.Pop(l.seqs).(int)
 		delete(l.events, seq)
 	}
 }
@@ -257,7 +261,7 @@ func (l *eventList) Put(msg *auparse.AuditMessage) {
 	}
 
 	if !found {
-		l.seqs.Push(seq)
+		heap.Push(l.seqs, seq)
 
 		e = &event{
 			expireTime: time.Now().Add(l.timeout),
