@@ -157,6 +157,7 @@ func Benchmark_eventList(b *testing.B) {
 	}
 
 	b.ReportAllocs()
+
 	b.ResetTimer()
 	b.Run("put", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
