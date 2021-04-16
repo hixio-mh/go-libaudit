@@ -152,7 +152,7 @@ func testReassembler(t testing.TB, file string, expected *results) {
 
 func Benchmark_eventList_put(b *testing.B) {
 	const maxSize = 10
-	h := &heapInt{}
+	h := &intHeap{}
 	heap.Init(h)
 	eventList := &eventList{
 		seqs:    h,
@@ -177,7 +177,7 @@ func Benchmark_eventList_put(b *testing.B) {
 
 func generateEvents() *eventList {
 	const maxSize = 10
-	h := &heapInt{}
+	h := &intHeap{}
 	heap.Init(h)
 	eventList := &eventList{
 		seqs:    h,

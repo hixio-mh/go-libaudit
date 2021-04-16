@@ -143,19 +143,19 @@ func (r *Reassembler) callback(events []*event, lost int) {
 
 const maxSortRange = 1<<24 - 1
 
-type heapInt []int
+type intHeap []int
 
-func (h heapInt) Len() int { return len(h) }
-func (h heapInt) Less(i, j int) bool {
+func (h intHeap) Len() int { return len(h) }
+func (h intHeap) Less(i, j int) bool {
 	if math.Abs(float64(h[i]-h[j])) > maxSortRange {
 		return h[i] > h[j]
 	}
 	return h[i] < h[j]
 }
-func (h heapInt) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
-func (h *heapInt) Push(x interface{}) { *h = append(*h, x.(int)) }
+func (h intHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *intHeap) Push(x interface{}) { *h = append(*h, x.(int)) }
 
-func (h *heapInt) Pop() interface{} {
+func (h *intHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -190,7 +190,7 @@ func (e *event) IsExpired() bool {
 
 type eventList struct {
 	sync.Mutex
-	seqs    *heapInt
+	seqs    *intHeap
 	events  map[int]*event
 	lastSeq int
 	maxSize int
@@ -198,7 +198,7 @@ type eventList struct {
 }
 
 func newEventList(maxSize int, timeout time.Duration) *eventList {
-	h := &heapInt{}
+	h := &intHeap{}
 	heap.Init(h)
 	return &eventList{
 		seqs:    h,
