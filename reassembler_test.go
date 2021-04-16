@@ -185,7 +185,7 @@ func generateEvents() *eventList {
 		maxSize: maxSize,
 	}
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 100; i++ {
 		var msgType auparse.AuditMessageType
 		if i%2 == 0 {
 			msgType = auparse.AUDIT_EOE
@@ -200,11 +200,12 @@ func generateEvents() *eventList {
 }
 
 func Benchmark_eventList_cleanup(b *testing.B) {
-	eventList := generateEvents()
-
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		eventList := generateEvents()
+		b.StartTimer()
 		eventList.CleanUp()
 	}
 }
