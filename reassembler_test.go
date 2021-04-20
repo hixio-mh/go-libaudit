@@ -19,6 +19,8 @@ package libaudit
 
 import (
 	"bufio"
+	"container/heap"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -27,8 +29,6 @@ import (
 
 	"github.com/elastic/go-libaudit/v2/auparse"
 )
-
-const maxSeq sequenceNum = 1<<32 - 1
 
 type testStream struct {
 	events  [][]*auparse.AuditMessage
@@ -150,10 +150,62 @@ func testReassembler(t testing.TB, file string, expected *results) {
 	}
 }
 
-func TestSequenceNumSliceSort(t *testing.T) {
-	expected := sequenceNumSlice{maxSeq - 5, maxSeq - 4, maxSeq - 3, maxSeq - 2, maxSeq, 0, 1, 2, 3, 4}
-	seqs := sequenceNumSlice{maxSeq - 5, maxSeq - 4, 0, 1, 2, maxSeq - 3, maxSeq - 2, maxSeq, 3, 4}
-	seqs.Sort()
+func Benchmark_eventList_put(b *testing.B) {
+	const maxSize = 10
+	h := &intHeap{}
+	heap.Init(h)
+	eventList := &eventList{
+		seqs:    h,
+		events:  make(map[int]*event, maxSize+1),
+		maxSize: maxSize,
+	}
+	rand.Seed(time.Now().Unix())
 
-	assert.Equal(t, expected, seqs)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		var msgType auparse.AuditMessageType
+		if i%2 == 0 {
+			msgType = auparse.AUDIT_EOE
+		}
+		eventList.Put(&auparse.AuditMessage{
+			Sequence:   rand.Uint32(),
+			RecordType: msgType,
+		})
+	}
+}
+
+func generateEvents() *eventList {
+	const maxSize = 10
+	h := &intHeap{}
+	heap.Init(h)
+	eventList := &eventList{
+		seqs:    h,
+		events:  make(map[int]*event, maxSize+1),
+		maxSize: maxSize,
+	}
+
+	for i := 0; i < 100; i++ {
+		var msgType auparse.AuditMessageType
+		if i%2 == 0 {
+			msgType = auparse.AUDIT_EOE
+		}
+		eventList.Put(&auparse.AuditMessage{
+			Sequence:   rand.Uint32(),
+			RecordType: msgType,
+		})
+	}
+
+	return eventList
+}
+
+func Benchmark_eventList_cleanup(b *testing.B) {
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		eventList := generateEvents()
+		b.StartTimer()
+		eventList.CleanUp()
+	}
 }

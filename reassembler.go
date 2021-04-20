@@ -18,7 +18,8 @@
 package libaudit
 
 import (
-	"sort"
+	"container/heap"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -98,8 +99,8 @@ func (r *Reassembler) PushMessage(msg *auparse.AuditMessage) {
 // function that handles calling auparse.Parse() to extract the message's
 // timestamp and sequence number. If parsing fails then an error will be
 // returned. See PushMessage.
-func (r *Reassembler) Push(typ auparse.AuditMessageType, rawData []byte) error {
-	msg, err := auparse.Parse(auparse.AuditMessageType(typ), string(rawData))
+func (r *Reassembler) Push(msgType auparse.AuditMessageType, rawData []byte) error {
+	msg, err := auparse.Parse(msgType, string(rawData))
 	if err != nil {
 		return err
 	}
@@ -140,35 +141,25 @@ func (r *Reassembler) callback(events []*event, lost int) {
 	}
 }
 
-type sequenceNum uint32
-
-// Type - sequenceNumSlice
-
-// maxSortRange defines the maximum range that sequence number can differ
-// before being considered to have rolled over. When two values differ by more
-// than this constant, the larger values is treated as being less.
 const maxSortRange = 1<<24 - 1
 
-type sequenceNumSlice []sequenceNum
+type intHeap []int
 
-func (p sequenceNumSlice) Len() int      { return len(p) }
-func (p sequenceNumSlice) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
-func (p sequenceNumSlice) Sort()         { sort.Sort(p) }
-
-func (p sequenceNumSlice) Less(i, j int) bool {
-	// Handle sequence number rollover.
-	diff := abs(int64(p[i]) - int64(p[j]))
-	if diff > maxSortRange {
-		return p[i] > p[j]
+func (h intHeap) Len() int { return len(h) }
+func (h intHeap) Less(i, j int) bool {
+	if math.Abs(float64(h[i]-h[j])) > maxSortRange {
+		return h[i] > h[j]
 	}
-
-	return p[i] < p[j]
+	return h[i] < h[j]
 }
+func (h intHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *intHeap) Push(x interface{}) { *h = append(*h, x.(int)) }
 
-func abs(x int64) int64 {
-	if x < 0 {
-		return -x
-	}
+func (h *intHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
 	return x
 }
 
@@ -199,17 +190,19 @@ func (e *event) IsExpired() bool {
 
 type eventList struct {
 	sync.Mutex
-	seqs    sequenceNumSlice
-	events  map[sequenceNum]*event
-	lastSeq sequenceNum
+	seqs    *intHeap
+	events  map[int]*event
+	lastSeq int
 	maxSize int
 	timeout time.Duration
 }
 
 func newEventList(maxSize int, timeout time.Duration) *eventList {
+	h := &intHeap{}
+	heap.Init(h)
 	return &eventList{
-		seqs:    make([]sequenceNum, 0, maxSize+1),
-		events:  make(map[sequenceNum]*event, maxSize+1),
+		seqs:    h,
+		events:  make(map[int]*event, maxSize+1),
 		maxSize: maxSize,
 		timeout: timeout,
 	}
@@ -217,9 +210,8 @@ func newEventList(maxSize int, timeout time.Duration) *eventList {
 
 // remove the first event (lowest sequence) in the list.
 func (l *eventList) remove() {
-	if len(l.seqs) > 0 {
-		seq := l.seqs[0]
-		l.seqs = l.seqs[1:]
+	if l.seqs.Len() > 0 {
+		seq := heap.Pop(l.seqs).(int)
 		delete(l.events, seq)
 	}
 }
@@ -231,20 +223,18 @@ func (l *eventList) Clear() ([]*event, int) {
 	defer l.Unlock()
 
 	var lost int
-	var seq sequenceNum
 	var evicted []*event
 	for {
-		size := len(l.seqs)
-		if size == 0 {
+		if l.seqs.Len() == 0 {
 			break
 		}
 
 		// Get event.
-		seq = l.seqs[0]
+		seq := (*l.seqs)[0]
 		event := l.events[seq]
 
 		if l.lastSeq > 0 {
-			lost += int(seq - l.lastSeq - 1)
+			lost += seq - l.lastSeq - 1
 		}
 		l.lastSeq = seq
 		evicted = append(evicted, event)
@@ -259,7 +249,7 @@ func (l *eventList) Put(msg *auparse.AuditMessage) {
 	l.Lock()
 	defer l.Unlock()
 
-	seq := sequenceNum(msg.Sequence)
+	seq := int(msg.Sequence)
 	e, found := l.events[seq]
 
 	// Mark as complete, but do not append.
@@ -271,8 +261,7 @@ func (l *eventList) Put(msg *auparse.AuditMessage) {
 	}
 
 	if !found {
-		l.seqs = append(l.seqs, seq)
-		l.seqs.Sort()
+		heap.Push(l.seqs, seq)
 
 		e = &event{
 			expireTime: time.Now().Add(l.timeout),
@@ -289,21 +278,20 @@ func (l *eventList) CleanUp() ([]*event, int) {
 	defer l.Unlock()
 
 	var lost int
-	var seq sequenceNum
 	var evicted []*event
 	for {
-		size := len(l.seqs)
+		size := l.seqs.Len()
 		if size == 0 {
 			break
 		}
 
 		// Get event.
-		seq = l.seqs[0]
+		seq := (*l.seqs)[0]
 		event := l.events[seq]
 
 		if event.complete || size > l.maxSize || event.IsExpired() {
 			if l.lastSeq > 0 {
-				lost += int(seq - l.lastSeq - 1)
+				lost += seq - l.lastSeq - 1
 			}
 			l.lastSeq = seq
 			evicted = append(evicted, event)
